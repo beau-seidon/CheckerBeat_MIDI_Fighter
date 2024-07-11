@@ -2,117 +2,99 @@
 
 
 
-unsigned long Ta = millis();             // activity LED timer
-unsigned long Tb[16] = {millis()};       // button debounce timers
-unsigned long Tp[3] = {millis()};        // pot gate timers
-unsigned long Tj[2] = {millis()};        // joystic gate timers
+#define DEFAULT_MIDI_CHANNEL 10
+#define DEFAULT_VELOCITY 102
+#define SILENCE 0
+#define PB 128
 
-bool noteOn[16] = {0};
+// this map is upside down
+const byte BUTTON_MAP[MAX_BUTTONS] = {
+    48, 46, 38, 45,
+    36, 37, 41, 40,
+    39, 47, 44, 49,
+    43, 42, 50, 51
+};
+const byte POT_CC[MAX_POTS] = { 21, 22, 23 };
+const byte JS_CC[MAX_AXES] = { PB, 1 };
+
+byte midi_channel = DEFAULT_MIDI_CHANNEL;
+byte velocity = DEFAULT_VELOCITY;
+
+// private declations:
+int midi_map(int x, int in_min, int in_max, int out_min, int out_max);
 
 
 
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial2, midi2);
 
 
-void midi_setup() {
-    midi2.begin(MIDI_CHANNEL);
 
-    pinMode(LED_BUILTIN, OUTPUT);
-    digitalWrite(LED_BUILTIN, LOW);
+void midi_setup()
+{
+    midi2.begin(midi_channel);
 }
 
 
-bool debounce(int i) {
-    if (millis() > (Tb[i] + DEBOUNCE_TIME)) {return true;}
-    return false;
+
+void midi_sendNoteOn(int b)
+{
+    midi2.sendNoteOn(BUTTON_MAP[b], velocity, midi_channel);
+
+    activity_monitor(1);
 }
 
 
-void buttons_to_midi(byte shiftreg1, byte shiftreg2) {
-    for(int i = 0; i < 16; i++) {
-        if(i < 8) {
-            if (shiftreg1 & 0x01 == 1) {
-                if(!noteOn[i] && debounce(i)) {
-                    noteOn[i] = true;
-                    midi2.sendNoteOn((BUTTON_MAP[i]), DEFAULT_VELOCITY, MIDI_CHANNEL);
-                    digitalWrite(LED_BUILTIN, HIGH);
-                    Ta = millis();
-                    Tb[i] = millis();
-                }
-            } else {
-                if(noteOn[i] && debounce(i)) {
-                    noteOn[i] = false;
-                    midi2.sendNoteOff((BUTTON_MAP[i]), 0, MIDI_CHANNEL);
-                    Tb[i] = millis();
-                }
-            }
-            shiftreg1 = shiftreg1 >> 1;
-        }
-        if(i > 7) {
-            if (shiftreg2 & 0x01 == 1) {
-                if(!noteOn[i] && debounce(i)) {
-                    noteOn[i] = true;
-                    midi2.sendNoteOn((BUTTON_MAP[i]), DEFAULT_VELOCITY, MIDI_CHANNEL);
-                    digitalWrite(LED_BUILTIN, HIGH);
-                    Ta = millis();
-                    Tb[i] = millis();
-                }
-            } else {
-                if(noteOn[i] && debounce(i)) {
-                    noteOn[i] = false;
-                    midi2.sendNoteOff((BUTTON_MAP[i]), 0, MIDI_CHANNEL);
-                    Tb[i] = millis();
-                }
-            }
-            shiftreg2 = shiftreg2 >> 1;
-        }
+
+void midi_sendNoteOff(int b)
+{
+    midi2.sendNoteOff(BUTTON_MAP[b], SILENCE, midi_channel);
+    // midi2.sendNoteOn(note, SILENCE, midi_channel);
+
+    activity_monitor(1);
+}
+
+
+
+void midi_sendCC_pot(int pot, int value)
+{
+    byte cc_value = (byte)midi_map(value, 0, 4095, 0, 127);
+    midi2.sendControlChange(POT_CC[pot], cc_value, midi_channel);
+
+    activity_monitor(1);
+}
+
+
+
+void midi_sendCC_js(int axis, int value)
+{
+    int minval, maxval;
+    if (axis == 0) {
+        minval = 0;
+        maxval = 4095;
+    } else {
+        minval = 4095;
+        maxval = 0;
     }
-}
 
-
-void activity_led_off() {
-    if((millis() - Ta) > 50) digitalWrite(LED_BUILTIN, LOW);
-}
-
-
-void midi_handler() {
-    buttons_to_midi(~buttons1, ~buttons2);
-    // pots_to_midi();
-    // joystick_to_midi();
-
-    activity_led_off();
-}
-
-
-/*
-void pots_to_midi() {
-    for(int i = 1; i < 3; i++){
-        if(pots[i] != prev_pots[i]) {
-            midi2.sendControlChange(POT_CC[i], pots[i], MIDI_CHANNEL);
-            prev_pots[i] = pots[i];
-        }
+    if (JS_CC[axis] == PB) {
+        int pb_value = midi_map(value, minval, maxval, MIDI_PITCHBEND_MIN, MIDI_PITCHBEND_MAX);
+        midi2.sendPitchBend(pb_value, midi_channel);
+    } else {
+        byte cc_value = (byte)midi_map(value, minval, maxval, 0, 127);
+        midi2.sendControlChange(JS_CC[axis], cc_value, midi_channel);
     }
+
+    activity_monitor(1);
 }
 
 
-// bool js_changed(float js, float prev_js) {
-//     int js_threshold = 1/64;
-//     if(js > prev_js * (1 + js_threshold)) return 1;
-//     if(js < prev_js * (1 - js_threshold)) return 1;
-//     return 0;
-// }
 
+int midi_map(int x, int in_min, int in_max, int out_min, int out_max)
+{
+    const int run = in_max - in_min;
+    if (run == 0) { return 0; }
+    const int rise = out_max - out_min;
+    const int delta = x - in_min;
 
-void joystick_to_midi() {
-//    if(js_changed(joystick_x, prev_joystick_x)) {
-    if(joystick_x != prev_joystick_x) {
-        // midi2.sendPitchBend(joystick_x, MIDI_CHANNEL);
-        // midi2.sendControlChange(JS_CC[0], joystick_x, MIDI_CHANNEL);
-        prev_joystick_x = joystick_x;
-    }
-    if(joystick_y != prev_joystick_y) {
-        midi2.sendControlChange(JS_CC[1], joystick_y, MIDI_CHANNEL);
-        prev_joystick_y = joystick_y;
-    }
+    return ((delta * rise) / run) + out_min;
 }
-*/

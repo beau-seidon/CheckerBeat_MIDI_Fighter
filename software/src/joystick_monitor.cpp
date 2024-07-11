@@ -2,35 +2,92 @@
 
 
 
-// float joystick_x = 0.0;
-int joystick_x = 0;
-int joystick_y = 0;
+const int JOYSTICK_PINS[MAX_AXES] = { 35, 34 };
+const int JOYSTICK_DEADBAND = (4096 / 128) - 1;
+const int AXIS_CHANGE_DELAY = 5;  // ms
 
-// float prev_joystick_x = -1.0;
-int prev_joystick_x = -1;
-int prev_joystick_y = -1;
+const int AXIS_CENTER[MAX_AXES] = { 1895, 1793 };
 
-float js_x_cal_ofst = 153;
+int active_axis = 0;
 
-// twice the min value required
-float js_x_deadzone = 0;
-float js_y_deadzone = 0;
+int axis_values[MAX_AXES] = { 0 };
+int prev_axis_values[MAX_AXES] = { 0 };
 
-// float range_limit(float min, float val, float max) {
-//     if(val > max) return max;
-//     if(val < min) return min;
-//     return val;
-// }
+static unsigned long T_act = millis();        // active-axis change timer
+unsigned long T_js[MAX_AXES] = { millis() };  // joystick debounce timers
+
+// private declarations:
+void read_axis(int axis);
+void axis_to_midi(int axis);
+int joystick_map(int x, int in_min, int in_max, int out_min, int out_max, int center);
 
 
-void joystick_setup() {
+
+void joystick_setup()
+{
     pinMode(JOYSTICK_PINS[0], INPUT);  // X-Axis (mod wheel)
     pinMode(JOYSTICK_PINS[1], INPUT);  // Y-Axis (pitch wheel)
+
+    for (int j = 0; j < MAX_AXES; ++j) { prev_axis_values[j] = axis_values[j]; }
 }
 
 
-void joystick_handler() {
-    // joystick_x = range_limit(-1.0, (2.0 * ((analogRead(JOYSTICK_PINS[0]) + js_x_cal_ofst) / 4095.0) - 1.0), 1.0);
-    joystick_x = 127 * (analogRead(JOYSTICK_PINS[0]) / 4095.0);
-    joystick_y = 127 * (analogRead(JOYSTICK_PINS[1]) / 4095.0);
+
+void joystick_handler()
+{
+    unsigned long T = millis();
+    if (T > T_act + AXIS_CHANGE_DELAY) {
+        T_act = T;
+        ++active_axis;
+        if (active_axis >= MAX_AXES) active_axis = 0;
+    }
+
+    read_axis(active_axis);
+    axis_to_midi(active_axis);
+}
+
+
+
+void read_axis(int axis)
+{
+    int axis_raw_value = analogRead(JOYSTICK_PINS[axis]);  // charge the ADC
+    axis_raw_value = analogRead(JOYSTICK_PINS[axis]);
+
+    int centered_value = joystick_map(axis_raw_value, 0, 4095, 0, 4095, AXIS_CENTER[axis]);
+
+    if (abs(axis_values[axis] - centered_value) > JOYSTICK_DEADBAND) {  // prevent ADC jitter and noise
+        axis_values[axis] = centered_value;
+        // Serial.print(axis); Serial.print(" "); Serial.println(axis_values[axis]);
+    }
+}
+
+
+
+void axis_to_midi(int axis)
+{
+    if(axis_values[axis] != prev_axis_values[axis]) {
+        prev_axis_values[axis] = axis_values[axis];
+
+        midi_sendCC_js(axis, axis_values[axis]);
+    }
+}
+
+
+
+int joystick_map(int x, int in_min, int in_max, int out_min, int out_max, int center)
+{
+    if (x > center) {
+        in_min = center;
+        out_min = out_max / 2;
+    } else {
+        in_max = center;
+        out_max = out_max / 2;
+    }
+
+    const int run = in_max - in_min;
+    if (run == 0) { return 0; }
+    const int rise = out_max - out_min;
+    const int delta = x - in_min;
+
+    return ((delta * rise) / run) + out_min;
 }

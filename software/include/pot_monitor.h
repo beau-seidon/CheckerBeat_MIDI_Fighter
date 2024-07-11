@@ -2,10 +2,11 @@
 
 #include <Arduino.h>
 
+#include "midi_interface.h"
 
 
-const int POT_PINS[3] = {33, 32, 25};
 
+#define MAX_POTS 3
 
 void pot_setup(void);
 void pot_handler(void);

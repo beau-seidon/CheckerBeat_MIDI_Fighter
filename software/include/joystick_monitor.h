@@ -2,11 +2,11 @@
 
 #include <Arduino.h>
 
+#include "midi_interface.h"
 
 
-const int JOYSTICK_PINS[2] = { 35, 34 };
 
+#define MAX_AXES 2
 
-float range_limit(float, float, float);
 void joystick_setup(void);
 void joystick_handler(void);

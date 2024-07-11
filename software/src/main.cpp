@@ -1,5 +1,6 @@
 #include <Arduino.h>
 
+#include "activity_monitor.h"
 #include "button_monitor.h"
 #include "pot_monitor.h"
 #include "joystick_monitor.h"
@@ -7,7 +8,9 @@
 
 
 
-void setup() {
+void setup()
+{
+    activity_setup();
     button_setup();
     pot_setup();
     joystick_setup();
@@ -15,9 +18,11 @@ void setup() {
 }
 
 
-void loop() {
+
+void loop()
+{
     button_handler();
     pot_handler();
     joystick_handler();
-    midi_handler();
+    activity_monitor(0);
 }
